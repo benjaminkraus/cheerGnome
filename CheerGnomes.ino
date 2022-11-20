@@ -4,14 +4,16 @@
 #include <Adafruit_NeoPixel.h>
 #include "Secrets.h"
 
-#define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP  30          /* Time ESP32 will go to sleep (in seconds) */
+#define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds. */
+#define TIME_TO_SLEEP  30          /* Time ESP32 will go to sleep (in seconds). */
+#define BATTERY_REPORT_RATE 10     /* Report battery voltage every N sleep cycles. */
 
 #define PIN A7
 #define NUMPIXELS 1
 #define CheerLightsChannelNumber 1417
 
 RTC_DATA_ATTR uint32_t lastColor = 0;
+RTC_DATA_ATTR uint8_t bootCount = BATTERY_REPORT_RATE;
 
 Adafruit_NeoPixel pixel(NUMPIXELS, PIN, NEO_GRBW + NEO_KHZ800);
 WiFiClient client;
@@ -73,7 +75,22 @@ void setLEDColor(uint32_t color) {
   lastColor = color;
 }
 
+float getBatteryVoltage() {
+  int value = analogReadMilliVolts(BATT_MONITOR);
+  return value * 2.0/1000.0;
+}
+
+void sendBatteryVoltageToThingSpeak() {
+  unsigned long channel = THINGSPEAK_BATTERY_CHANNEL_NUMBER;
+  const char * APIKey = THINGSPEAK_BATTERY_CHANNEL_APIKEY;
+  int status = ThingSpeak.writeField(channel, 1, getBatteryVoltage(), APIKey);
+  if (status == 200) {
+    bootCount = 0;
+  }
+}
+
 void setup() {
+  ++bootCount;
   pixel.begin();
   ThingSpeak.begin(client);
 }
@@ -83,6 +100,9 @@ void loop() {
     uint32_t currentColor = getCurrentColor();
     if (currentColor > 0) {
       setLEDColor(currentColor);
+    }
+    if (bootCount > BATTERY_REPORT_RATE) {
+      sendBatteryVoltageToThingSpeak();
     }
   }
 
