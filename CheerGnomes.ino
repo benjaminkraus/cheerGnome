@@ -12,8 +12,15 @@
 #define NUMPIXELS 1
 #define CheerLightsChannelNumber 1417
 
-RTC_DATA_ATTR uint32_t lastColor = 0;
+enum errorCodes {
+  ERROR_NONE = 0,
+  ERROR_WIFI = 1,
+  ERROR_COLOR = 2
+};
+
 RTC_DATA_ATTR uint8_t bootCount = BATTERY_REPORT_RATE;
+RTC_DATA_ATTR uint8_t errorCode = ERROR_NONE;
+RTC_DATA_ATTR bool errorFlashOn = false;
 
 Adafruit_NeoPixel pixel(NUMPIXELS, PIN, NEO_GRBW + NEO_KHZ800);
 WiFiClient client;
@@ -45,12 +52,38 @@ uint32_t colorNameToInt(String colorName) {
   return 0;
 }
 
+uint32_t getErrorColor() {
+  if (errorCode == ERROR_WIFI) {
+    return colorNameToInt("red");
+  } else if (errorCode == ERROR_COLOR) {
+    return colorNameToInt("green");
+  } else {
+    return 0;
+  }
+}
+
+uint64_t getErrorSleepTime() {
+  if (errorCode == ERROR_WIFI) {
+    return 5;
+  } else {
+    return 15;
+  }
+}
+
+unsigned long connectionWaitTime() {
+  if (errorCode == ERROR_WIFI) {
+    return 10;
+  } else {
+    return 30;
+  }
+}
+
 bool connectToWiFi() {
   if (WiFi.status() != WL_CONNECTED) {
     unsigned long time = millis();
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     while (WiFi.status() != WL_CONNECTED) {
-      if ((millis() - time) > (30*1000)) {
+      if ((millis() - time) > (connectionWaitTime()*1000)) {
         return false;
       }
       delay(500);
@@ -72,7 +105,6 @@ uint32_t getCurrentColor() {
 void setLEDColor(uint32_t color) {
   pixel.setPixelColor(0, color);
   pixel.show();
-  lastColor = color;
 }
 
 float getBatteryVoltage() {
@@ -96,16 +128,34 @@ void setup() {
 }
 
 void loop() {
+  uint64_t sleepTime = TIME_TO_SLEEP;
+
   if (connectToWiFi()) {
     uint32_t currentColor = getCurrentColor();
     if (currentColor > 0) {
       setLEDColor(currentColor);
+      errorCode = ERROR_NONE;      
+    } else {
+      errorCode = ERROR_COLOR;
     }
     if (bootCount > BATTERY_REPORT_RATE) {
       sendBatteryVoltageToThingSpeak();
     }
+  } else {
+    errorCode = ERROR_WIFI;
   }
 
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  if (errorCode) {
+    sleepTime = getErrorSleepTime();
+    if (errorFlashOn) {
+      setLEDColor(0);
+      errorFlashOn = false;
+    } else {
+      setLEDColor(getErrorColor());
+      errorFlashOn = true;
+    }
+  }
+
+  esp_sleep_enable_timer_wakeup(sleepTime * uS_TO_S_FACTOR);
   esp_deep_sleep_start();
 }
