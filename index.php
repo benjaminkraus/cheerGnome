@@ -4,21 +4,9 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-function getSunsetDateTimeFromJSON($json) {
-    $data = json_decode($json);
-    $sunrise = new DateTime($data->{'results'}->{'sunrise'});
-    $sunset = new DateTime($data->{'results'}->{'sunset'});
-    return (object) ([ "sunrise" => $sunrise, "sunset" => $sunset ]);
-}
-
-function querySunset($date, $lat, $lon) {
-    $fmt = "https://api.sunrise-sunset.org/json?date=%s&lat=%f&lng=%f&formatted=0";
-    $url = sprintf($fmt, $date->format("Y-m-d"), $lat, $lon);
-    $json = file_get_contents($url);
-    if ($json != false) {
-        return getSunsetDateTimeFromJSON($json);
-    }
-    return false;
+function querySunset(Datetime $date, float $lat, float $lon) {
+    $data = date_sun_info($date->getTimestamp(), $lat, $lon);
+    return (object) ([ "sunrise" => $data["sunrise"], "sunset" => $data["sunset"] ]);
 }
 
 function readCache($cacheFile) {
