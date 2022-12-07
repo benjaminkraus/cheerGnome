@@ -4,6 +4,7 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+header('Content-Type: application/json; charset=utf-8');
 
 function getSunsetAfter(DateTime $time) {
     $tz = $time->getTimezone();
@@ -20,7 +21,7 @@ function getSunsetAfter(DateTime $time) {
     $data = date_sun_info($timestamp, $lat, $lon);
 
     // Make sure that sunset occurs after the provided time.
-    while ($time->getTimestamp() > $data["sunset"]) {
+    while ($time->getTimestamp() >= $data["sunset"]) {
         // Add one day to the timestamp.
         $timestamp = $timestamp + 86400;
         $data = date_sun_info($timestamp, $lat, $lon);
@@ -46,12 +47,28 @@ function getNextEvent($now) {
     }
 }
 
+function getCheerlightColor() {
+    $cheerlightURL = "https://api.thingspeak.com/channels/1417/field/1/last.txt";
+    return file_get_contents($cheerlightURL);
+}
+
 $tz = new DateTimeZone('America/New_York');
 $now = new DateTime("now", $tz);
+$now->setTimeZone($tz);
 $nextEvent = getNextEvent($now);
+$timeToNextEvent = $nextEvent->{'next'}->getTimestamp() - $now->getTimeStamp();
+$color = "none";
+if ($nextEvent->{'LEDon'}) {
+    $timeToNextEvent = 30;
+    $color = getCheerlightColor();
+} else if ($timeToNextEvent > 60) {
+    // Scale down by 10% to account for drift in the microcontroller clock.
+    $timeToNextEvent = max(30, floor(0.9*$timeToNextEvent));
 
-echo $nextEvent->{'next'}->getTimestamp() - $now->getTimeStamp();
+    // Sleep for at most 1 hour.
+    $timeToNextEvent = min(3600, $timeToNextEvent);
+}
 
-//header('Content-Type: application/json; charset=utf-8');
+echo json_encode(["color" => $color, "sleep" => $timeToNextEvent ]);
 
 ?>
