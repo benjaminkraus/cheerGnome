@@ -7,6 +7,7 @@
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds. */
 #define TIME_TO_SLEEP  30          /* Time ESP32 will go to sleep (in seconds). */
 #define BATTERY_REPORT_RATE 10     /* Report battery voltage every N sleep cycles. */
+#define ERROR_REPORT_RATE 6        /* How many times an error occurs before blinking the light. */
 
 #define PIN A7
 #define NUMPIXELS 1
@@ -18,9 +19,10 @@ enum errorCodes {
   ERROR_COLOR = 2
 };
 
+RTC_DATA_ATTR uint32_t lastColor = 4294967295;
 RTC_DATA_ATTR uint8_t bootCount = BATTERY_REPORT_RATE;
 RTC_DATA_ATTR uint8_t errorCode = ERROR_NONE;
-RTC_DATA_ATTR bool errorFlashOn = false;
+RTC_DATA_ATTR uint8_t errorCount = ERROR_REPORT_RATE;
 
 Adafruit_NeoPixel pixel(NUMPIXELS, PIN, NEO_GRBW + NEO_KHZ800);
 WiFiClient client;
@@ -62,14 +64,6 @@ uint32_t getErrorColor() {
   }
 }
 
-uint64_t getErrorSleepTime() {
-  if (errorCode == ERROR_WIFI) {
-    return 5;
-  } else {
-    return 15;
-  }
-}
-
 unsigned long connectionWaitTime() {
   if (errorCode == ERROR_WIFI) {
     return 10;
@@ -97,7 +91,8 @@ uint32_t getCurrentColor() {
   int statusCode = ThingSpeak.getLastReadStatus();
 
   if (statusCode == 200) {
-    return colorNameToInt(color);
+    lastColor = colorNameToInt(color);
+    return lastColor;
   }
   return 0;
 }
@@ -134,7 +129,7 @@ void loop() {
     uint32_t currentColor = getCurrentColor();
     if (currentColor > 0) {
       setLEDColor(currentColor);
-      errorCode = ERROR_NONE;      
+      errorCode = ERROR_NONE;
     } else {
       errorCode = ERROR_COLOR;
     }
@@ -145,15 +140,25 @@ void loop() {
     errorCode = ERROR_WIFI;
   }
 
+  if (errorCode && errorCount >= ERROR_REPORT_RATE) {
+    uint32_t errorColor = getErrorColor();
+    setLEDColor(0);
+    delay(1000);
+    setLEDColor(getErrorColor());
+    delay(1000);
+    setLEDColor(0);
+    delay(1000);
+    setLEDColor(getErrorColor());
+    delay(1000);
+    setLEDColor(0);
+    delay(1000);
+    setLEDColor(lastColor);
+  }
+
   if (errorCode) {
-    sleepTime = getErrorSleepTime();
-    if (errorFlashOn) {
-      setLEDColor(0);
-      errorFlashOn = false;
-    } else {
-      setLEDColor(getErrorColor());
-      errorFlashOn = true;
-    }
+    ++errorCount;
+  } else {
+    errorCount = 0;
   }
 
   esp_sleep_enable_timer_wakeup(sleepTime * uS_TO_S_FACTOR);
