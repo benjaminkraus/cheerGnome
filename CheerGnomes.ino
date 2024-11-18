@@ -19,6 +19,7 @@ enum errorCodes {
   ERROR_COLOR = 2
 };
 
+RTC_DATA_ATTR uint8_t macLastOctet = 0;
 RTC_DATA_ATTR uint32_t lastColor = 4294967295;
 RTC_DATA_ATTR uint8_t bootCount = BATTERY_REPORT_RATE;
 RTC_DATA_ATTR uint8_t errorCode = ERROR_NONE;
@@ -72,6 +73,14 @@ unsigned long connectionWaitTime() {
   }
 }
 
+void identifyCheerGnome() {
+  if (macLastOctet == 0) {
+    unsigned char mac_base[6] = {0};
+    esp_efuse_mac_get_default(mac_base);
+    macLastOctet = mac_base[5];
+  }
+}
+
 bool connectToWiFi() {
   if (WiFi.status() != WL_CONNECTED) {
     unsigned long time = millis();
@@ -102,14 +111,36 @@ void setLEDColor(uint32_t color) {
   pixel.show();
 }
 
+unsigned long getThingSpeakChannel(uint8_t lastOctet) {
+  for (size_t ind = 0; ind < numCheerGnomes; ++ind) {
+    if (lastOctet == cheerGnomeMac[ind]) {
+      return thingSpeakChannel[ind];
+    }
+  }
+  return 0;
+}
+
+const char * getThingSpeakAPIKey(uint8_t lastOctet) {
+  for (size_t ind = 0; ind < numCheerGnomes; ++ind) {
+    if (lastOctet == cheerGnomeMac[ind]) {
+      return thingSpeakAPIKey[ind];
+    }
+  }
+  return nullptr;
+} 
+
 float getBatteryVoltage() {
   int value = analogReadMilliVolts(BATT_MONITOR);
   return value * 2.0/1000.0;
 }
 
 void sendBatteryVoltageToThingSpeak() {
-  unsigned long channel = THINGSPEAK_BATTERY_CHANNEL_NUMBER;
-  const char * APIKey = THINGSPEAK_BATTERY_CHANNEL_APIKEY;
+  unsigned long channel = getThingSpeakChannel(macLastOctet);
+  const char * APIKey = getThingSpeakAPIKey(macLastOctet);
+  if (channel == 0 || APIKey == nullptr) {
+    return;
+  }
+  
   int status = ThingSpeak.writeField(channel, 1, getBatteryVoltage(), APIKey);
   if (status == 200) {
     bootCount = 0;
@@ -118,6 +149,7 @@ void sendBatteryVoltageToThingSpeak() {
 
 void setup() {
   ++bootCount;
+  identifyCheerGnome();
   pixel.begin();
   ThingSpeak.begin(client);
 }
